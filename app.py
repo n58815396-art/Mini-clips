@@ -25,12 +25,9 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
-        # Table for Categories
         conn.execute('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)')
-        # Table for Videos with views and category
         conn.execute('''CREATE TABLE IF NOT EXISTS videos 
                         (id TEXT PRIMARY KEY, filename TEXT, title TEXT, category_id INTEGER, views INTEGER DEFAULT 0)''')
-        # Table for Likes
         conn.execute('CREATE TABLE IF NOT EXISTS likes (video_id TEXT, user_id TEXT, UNIQUE(video_id, user_id))')
         conn.commit()
 
@@ -98,12 +95,8 @@ def home():
     cat_id = request.args.get('cat', type=int)
     with get_db() as conn:
         categories = conn.execute('SELECT * FROM categories').fetchall()
-        
-        # Hot Clips (Order by views + likes)
         hot_clips = conn.execute('''SELECT v.*, (SELECT COUNT(*) FROM likes WHERE video_id = v.id) as likes 
                                     FROM videos v ORDER BY (views + likes) DESC LIMIT 5''').fetchall()
-        
-        # Main Feed
         query = 'SELECT v.*, (SELECT COUNT(*) FROM likes WHERE video_id = v.id) as likes FROM videos v'
         params = []
         if cat_id:
@@ -112,13 +105,13 @@ def home():
         query += ' ORDER BY id DESC'
         videos = conn.execute(query, params).fetchall()
 
-    return render_template_string(f"""
+    html = """
         <!DOCTYPE html>
         <html>
         <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Home</title>
-            {COMMON_STYLE}
+            {{ style | safe }}
         </head>
         <body>
             <a href="/settings" class="admin-btn">⚙️</a>
@@ -152,20 +145,20 @@ def home():
             {{ nav | safe }}
         </body>
         </html>
-    """, hot_clips=hot_clips, categories=categories, videos=videos, selected_cat=cat_id, nav=render_template_string(NAV_HTML, page='home'))
+    """
+    return render_template_string(html, style=COMMON_STYLE, hot_clips=hot_clips, categories=categories, videos=videos, selected_cat=cat_id, nav=render_template_string(NAV_HTML, page='home'))
 
 @app.route('/reels')
 def reels():
-    start_id = request.args.get('start')
     with get_db() as conn:
         videos = conn.execute('SELECT v.*, (SELECT COUNT(*) FROM likes WHERE video_id = v.id) as likes FROM videos v ORDER BY id DESC').fetchall()
     
-    return render_template_string("""
+    html = """
         <!DOCTYPE html>
         <html>
         <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-            {style}
+            {{ style | safe }}
             <style>
                 .reels-container { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; }
                 .reel-card { height: 100vh; scroll-snap-align: start; position: relative; }
@@ -196,7 +189,6 @@ def reels():
                         if (entry.isIntersecting) {
                             const v = entry.target.querySelector('video');
                             v.play();
-                            // Increment View
                             fetch('/api/view/' + entry.target.dataset.id, {method:'POST'});
                         } else {
                             entry.target.querySelector('video').pause();
@@ -207,11 +199,11 @@ def reels():
             </script>
         </body>
         </html>
-    """.format(style=COMMON_STYLE, nav=render_template_string(NAV_HTML, page='reels')), videos=videos)
+    """
+    return render_template_string(html, style=COMMON_STYLE, nav=render_template_string(NAV_HTML, page='reels'), videos=videos)
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
-    # Simple Admin Check
     error = None
     if request.method == 'POST':
         pw = request.form.get('password')
@@ -229,10 +221,10 @@ def settings():
     with get_db() as conn:
         categories = conn.execute('SELECT * FROM categories').fetchall()
     
-    return render_template_string("""
+    html = """
         <!DOCTYPE html>
         <html>
-        <head><meta name="viewport" content="width=device-width, initial-scale=1.0">{style}</head>
+        <head><meta name="viewport" content="width=device-width, initial-scale=1.0">{{ style | safe }}</head>
         <body style="padding: 20px;">
             <h2>⚙️ Admin Settings</h2>
             <form method="POST">
@@ -247,7 +239,8 @@ def settings():
             <a href="/" style="color:#aaa;">← Back to App</a>
         </body>
         </html>
-    """.format(style=COMMON_STYLE), categories=categories)
+    """
+    return render_template_string(html, style=COMMON_STYLE, categories=categories)
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
@@ -256,7 +249,7 @@ def upload():
             file = request.files['file']
             if file and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
-                vid_id = str(hash(filename))
+                vid_id = str(abs(hash(filename)))
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
                 with get_db() as conn:
                     conn.execute('INSERT INTO videos (id, filename, title, category_id) VALUES (?, ?, ?, ?)',
@@ -266,10 +259,11 @@ def upload():
     
     with get_db() as conn:
         categories = conn.execute('SELECT * FROM categories').fetchall()
-    return render_template_string("""
+    
+    html = """
         <!DOCTYPE html>
         <html>
-        <head><meta name="viewport" content="width=device-width, initial-scale=1.0">{style}</head>
+        <head><meta name="viewport" content="width=device-width, initial-scale=1.0">{{ style | safe }}</head>
         <body style="padding: 20px;">
             <h2>Upload Video</h2>
             <form method="POST" enctype="multipart/form-data">
@@ -284,7 +278,8 @@ def upload():
             </form>
         </body>
         </html>
-    """.format(style=COMMON_STYLE), categories=categories)
+    """
+    return render_template_string(html, style=COMMON_STYLE, categories=categories)
 
 @app.route('/api/view/<vid>', methods=['POST'])
 def add_view(vid):
